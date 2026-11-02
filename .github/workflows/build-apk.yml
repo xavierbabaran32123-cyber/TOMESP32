@@ -2,8 +2,6 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ main, master ]
-    tags: [ 'v*' ]
   release:
     types: [ published ]
   workflow_dispatch:
@@ -25,22 +23,50 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Accept Android SDK licenses
-        run: yes | sdkmanager --licenses > /dev/null || true
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '9.3.1'
-
-      - name: Prepare debug signing keystore
+      - name: Install Android SDK 36.1 & Build Tools
         run: |
-          if [ -f debug.keystore.base64 ]; then
-            base64 -d debug.keystore.base64 > debug.keystore
-          elif [ ! -f debug.keystore ]; then
+          export ANDROID_SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_HOME="$ANDROID_SDK_ROOT"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+
+          sudo mkdir -p "$ANDROID_SDK_ROOT"
+          sudo chown -R "$USER:$USER" "$ANDROID_SDK_ROOT"
+
+          SDKMANAGER=$(find "$ANDROID_SDK_ROOT/cmdline-tools" -name sdkmanager -type f 2>/dev/null | sort -V | tail -n 1 || true)
+          if [ -z "$SDKMANAGER" ]; then
+            curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip -o /tmp/cmdtools.zip
+            mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+            unzip -q /tmp/cmdtools.zip -d /tmp/cmdtools
+            mv /tmp/cmdtools/cmdline-tools "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+            SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          fi
+
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_SDK_ROOT" --licenses > /dev/null || true
+          "$SDKMANAGER" --sdk_root="$ANDROID_SDK_ROOT" --install "cmdline-tools;latest"
+          LATEST_SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$LATEST_SDKMANAGER" --sdk_root="$ANDROID_SDK_ROOT" --licenses > /dev/null || true
+          "$LATEST_SDKMANAGER" --sdk_root="$ANDROID_SDK_ROOT" --install \
+            "platform-tools" \
+            "platforms;android-36.1" \
+            "build-tools;36.0.0"
+
+      - name: Install Gradle 9.3.1
+        run: |
+          curl -fsSL https://services.gradle.org/distributions/gradle-9.3.1-bin.zip -o /tmp/gradle.zip
+          sudo mkdir -p /opt/gradle
+          sudo unzip -q -o /tmp/gradle.zip -d /opt/gradle
+          echo "/opt/gradle/gradle-9.3.1/bin" >> "$GITHUB_PATH"
+
+      - name: Prepare environment & debug signing keystore
+        run: |
+          [ -f .env.example ] || touch .env.example
+          [ -f .env ] || cp .env.example .env
+
+          if [ -s debug.keystore.base64 ]; then
+            tr -d '[:space:]' < debug.keystore.base64 | base64 -d > debug.keystore || rm -f debug.keystore
+          fi
+          if [ ! -s debug.keystore ]; then
             keytool -genkeypair -v \
               -keystore debug.keystore \
               -storepass android \
@@ -53,9 +79,9 @@ jobs:
           fi
 
       - name: Build Debug APK
-        run: gradle :app:assembleDebug
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
 
-      - name: Rename APK for easy download
+      - name: Package APK output
         run: cp app/build/outputs/apk/debug/app-debug.apk Mask-Controller.apk
 
       - name: Upload APK to Actions Artifacts
