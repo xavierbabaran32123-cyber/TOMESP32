@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Mask Maze Controller</title>
+<style>
+  :root {
+    --bg: #0b0b1a; --panel: #1a1a33; --panel-hi: #34346b; --ink: #f0e6ff;
+    --accent: #ff4fb8; --ok: #5fe3a1; --bad: #ff6b5e;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+    font-family: system-ui, sans-serif; overflow: hidden;
+    touch-action: none; user-select: none; -webkit-user-select: none;
+    -webkit-touch-callout: none;
+  }
+  /* the whole UI lives in #app, which JS sizes / rotates in 90 degree steps */
+  #app { position: fixed; left: 0; top: 0; display: flex; flex-direction: column; transform-origin: 0 0; }
+
+  header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; flex: none; }
+  #status { flex: 1; min-width: 0; font-size: 13px; opacity: .9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #status::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--bad); margin-right: 8px; }
+  #status.on::before { background: var(--ok); }
+  .pill {
+    background: var(--panel); color: var(--ink); border: 2px solid var(--panel-hi); border-radius: 999px;
+    padding: 8px 14px; font-size: 14px; font-weight: 600; white-space: nowrap;
+  }
+  .pill.accent { background: var(--accent); border-color: var(--accent); color: #200014; font-weight: 700; }
+  #app.editing #editBtn { background: var(--ok); border-color: var(--ok); color: #05241a; }
+
+  #stage { position: relative; flex: 1; overflow: hidden; }
+  .ctl { position: absolute; }
+
+  .stick {
+    border-radius: 50%;
+    background: radial-gradient(circle at 50% 50%, #23234a 0%, var(--panel) 70%);
+    border: 2px solid var(--panel-hi);
+  }
+  .stick::before, .stick::after { content: ""; position: absolute; background: var(--panel-hi); opacity: .45; }
+  .stick::before { left: 50%; top: 12%; bottom: 12%; width: 2px; transform: translateX(-1px); }
+  .stick::after  { top: 50%; left: 12%; right: 12%; height: 2px; transform: translateY(-1px); }
+  .knob {
+    position: absolute; left: 50%; top: 50%; width: 38%; aspect-ratio: 1; border-radius: 50%;
+    margin: -19% 0 0 -19%; background: #4a4a8c; border: 2px solid #8a8ae0;
+    box-shadow: 0 4px 14px rgba(0,0,0,.5); pointer-events: none; will-change: transform;
+  }
+  .stick.active .knob { background: var(--accent); border-color: var(--accent); }
+
+  .k {
+    background: var(--panel); border: 2px solid var(--panel-hi); border-radius: 50%; color: var(--ink);
+    display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.1;
+  }
+  .k span { font-size: calc(var(--sz) * .36); font-weight: 800; }
+  .k small { display: block; font-size: max(9px, calc(var(--sz) * .13)); font-weight: 500; opacity: .7; }
+  .k.down { background: var(--accent); border-color: var(--accent); color: #200014; }
+
+  /* edit mode */
+  #app.editing .ctl { outline: 2px dashed #8a8ae0; outline-offset: 4px; }
+  #app.editing .ctl.sel { outline: 3px solid var(--accent); }
+  #editbar {
+    display: none; position: absolute; top: 6px; left: 8px; right: 8px; z-index: 5;
+    align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap;
+    background: rgba(26,26,51,.92); border: 2px solid var(--panel-hi); border-radius: 16px; padding: 6px 10px;
+  }
+  #app.editing #editbar { display: flex; }
+  #editbar .lbl { font-size: 13px; opacity: .85; min-width: 76px; text-align: center; }
+  #editbar .pill { padding: 6px 14px; font-size: 18px; line-height: 1; }
+  #editbar .pill.txt { font-size: 13px; }
+
+  #hint { text-align: center; font-size: 12px; opacity: .65; padding: 4px 16px 8px; flex: none; }
+  #hint:empty { display: none; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div id="status">Not connected</div>
+    <button class="pill" id="rotateBtn" title="Rotate the controller 90 degrees">⟳ Rotate</button>
+    <button class="pill" id="editBtn" title="Move and resize the controls">✎ Edit</button>
+    <button class="pill accent" id="connect">Connect</button>
+  </header>
+
+  <div id="stage">
+    <div class="ctl stick" id="stick"><div class="knob" id="knob"></div></div>
+    <div class="ctl k" id="btnA" data-c="A"><span>A<small>start / OK</small></span></div>
+    <div class="ctl k" id="btnB" data-c="B"><span>B<small>pause / back</small></span></div>
+
+    <div id="editbar">
+      <button class="pill" id="sizeDown" aria-label="Smaller">−</button>
+      <div class="lbl" id="sizeLbl">Tap a control</div>
+      <button class="pill" id="sizeUp" aria-label="Bigger">+</button>
+      <button class="pill txt" id="resetBtn">Reset layout</button>
+    </div>
+  </div>
+  <div id="hint"></div>
+</div>
+
+<script>
+const NUS_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+const NUS_RX      = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+
+const $ = id => document.getElementById(id);
+const app = $("app"), stage = $("stage");
+const statusEl = $("status"), hintEl = $("hint"), connectBtn = $("connect");
+const rotateBtn = $("rotateBtn"), editBtn = $("editBtn"), sizeLbl = $("sizeLbl");
+const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+
+/* ---------------------------------------------------------------- Bluetooth */
+let device = null, rx = null;
+let queue = Promise.resolve();     // GATT writes must go one at a time
+
+function setStatus(text, on) { statusEl.textContent = text; statusEl.classList.toggle("on", !!on); }
+
+function send(str) {
+  if (!rx || !str) return;
+  const data = new TextEncoder().encode(str);
+  queue = queue
+    .then(() => (rx.writeValueWithoutResponse ? rx.writeValueWithoutResponse(data) : rx.writeValue(data)))
+    .catch(() => {});              // a dropped packet is harmless, the next one carries on
+}
+
+async function connect() {
+  if (!navigator.bluetooth) {
+    hintEl.textContent = "Web Bluetooth is not available here. On Android use Chrome; on iPhone use the Bluefy browser.";
+    return;
+  }
+  try {
+    setStatus("Searching...", false);
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [NUS_SERVICE] }],
+      optionalServices: [NUS_SERVICE]
+    });
+    device.addEventListener("gattserverdisconnected", onDisconnected);
+    setStatus("Connecting...", false);
+    const server = await device.gatt.connect();
+    const svc = await server.getPrimaryService(NUS_SERVICE);
+    rx = await svc.getCharacteristic(NUS_RX);
+    setStatus("Connected: " + (device.name || "MaskMaze"), true);
+    connectBtn.textContent = "Disconnect";
+    hintEl.textContent = editing ? EDIT_HINT : "";
+    send("0");
+  } catch (e) {
+    setStatus("Not connected", false);
+    if (!(e && e.name === "NotFoundError")) hintEl.textContent = "Could not connect: " + (e && e.message ? e.message : e);
+  }
+}
+
+function onDisconnected() {
+  rx = null;
+  setStatus("Disconnected", false);
+  connectBtn.textContent = "Connect";
+  releaseAll(false);
+}
+
+connectBtn.addEventListener("click", () => {
+  if (device && device.gatt.connected) device.gatt.disconnect();
+  else connect();
+});
+
+/* ------------------------------------------------- saved layout + rotation */
+const KEY = "maskmaze.controller.v1";
+const IDS = ["stick", "a", "b"];
+const ctl = { stick: $("stick"), a: $("btnA"), b: $("btnB") };
+const BASE = { stick: 0.50, a: 0.22, b: 0.22 };       // size as a fraction of the stage's short side (at 100%)
+const DEFAULTS = {
+  portrait:  { stick: { x: .26, y: .74, s: 1 }, a: { x: .64, y: .80, s: 1 }, b: { x: .88, y: .66, s: 1 } },
+  landscape: { stick: { x: .20, y: .55, s: 1 }, a: { x: .70, y: .66, s: 1 }, b: { x: .88, y: .46, s: 1 } }
+};
+const clone = o => JSON.parse(JSON.stringify(o));
+let cfg = { rot: 0, layouts: clone(DEFAULTS) };
+
+function load() {
+  try {
+    const j = JSON.parse(localStorage.getItem(KEY) || "null");
+    if (!j) return;
+    if ([0, 90, 180, 270].includes(j.rot)) cfg.rot = j.rot;
+    for (const o of ["portrait", "landscape"]) for (const id of IDS) {
+      const v = j.layouts && j.layouts[o] && j.layouts[o][id];
+      if (v && isFinite(v.x) && isFinite(v.y) && isFinite(v.s))
+        cfg.layouts[o][id] = { x: clamp(v.x, 0, 1), y: clamp(v.y, 0, 1), s: clamp(v.s, 0.5, 2.5) };
+    }
+  } catch (e) { /* storage unavailable: just use the defaults */ }
+}
+function save() { try { localStorage.setItem(KEY, JSON.stringify(cfg)); } catch (e) {} }
+
+/* ------------------------------------------------------------------ layout */
+const orient = () => (stage.clientWidth >= stage.clientHeight ? "landscape" : "portrait");
+const fit = (v, half, total) => (total <= half * 2 ? total / 2 : clamp(v, half, total - half));
+
+// screen-space vector -> vector inside the (possibly rotated) UI
+function toLocal(sx, sy) {
+  const t = cfg.rot * Math.PI / 180, c = Math.cos(t), s = Math.sin(t);
+  return [sx * c + sy * s, -sx * s + sy * c];
+}
+
+function layout() {
+  const W = window.innerWidth, H = window.innerHeight, rot = cfg.rot;
+  const swap = rot % 180 !== 0;
+  app.style.width = (swap ? H : W) + "px";
+  app.style.height = (swap ? W : H) + "px";
+  app.style.transform =
+    rot === 0   ? "none" :
+    rot === 90  ? `translate(${W}px, 0px) rotate(90deg)` :
+    rot === 180 ? `translate(${W}px, ${H}px) rotate(180deg)` :
+                  `translate(0px, ${H}px) rotate(270deg)`;
+  // keep clear of notches / system bars on whichever physical side each edge ended up
+  const E = s => `env(safe-area-inset-${s}, 0px)`;
+  const sides = { 0: ["top","right","bottom","left"], 90: ["right","bottom","left","top"],
+                  180: ["bottom","left","top","right"], 270: ["left","top","right","bottom"] }[rot];
+  app.style.paddingTop = E(sides[0]); app.style.paddingRight = E(sides[1]);
+  app.style.paddingBottom = E(sides[2]); app.style.paddingLeft = E(sides[3]);
+  placeAll();
+}
+
+function placeAll() {
+  const sw = stage.clientWidth, sh = stage.clientHeight, m = Math.min(sw, sh);
+  const lay = cfg.layouts[orient()];
+  for (const id of IDS) {
+    const c = lay[id], el = ctl[id];
+    const size = Math.max(40, Math.round(BASE[id] * m * c.s));
+    const half = size / 2;
+    el.style.width = el.style.height = size + "px";
+    el.style.setProperty("--sz", size + "px");
+    el.style.left = (fit(c.x * sw, half, sw) - half) + "px";
+    el.style.top  = (fit(c.y * sh, half, sh) - half) + "px";
+  }
+  updateSizeLbl();
+}
+
+/* ----------------------------------------------------------- play controls */
+const held = new Map();             // pointerId -> button element
+function press(el) {
+  if (!el || el.classList.contains("down")) return;
+  el.classList.add("down");
+  send(el.dataset.c);
+  if (navigator.vibrate) navigator.vibrate(8);
+}
+function release(el) {
+  if (!el || !el.classList.contains("down")) return;
+  el.classList.remove("down");
+  send(el.dataset.c.toLowerCase());
+}
+function releaseAll(notify = true) {
+  document.querySelectorAll(".k.down").forEach(el => el.classList.remove("down"));
+  held.clear();
+  resetStick();
+  if (notify) send("0");
+}
+
+[["a", $("btnA")], ["b", $("btnB")]].forEach(([id, el]) => {
+  el.addEventListener("pointerdown", e => {
+    if (editing) { startDrag(id, e); return; }
+    e.preventDefault();
+    held.set(e.pointerId, el);
+    press(el);
+  });
+});
+function up(e) { const el = held.get(e.pointerId); if (el) { release(el); held.delete(e.pointerId); } }
+window.addEventListener("pointerup", up);
+window.addEventListener("pointercancel", up);
+
+/* virtual joystick: drag the knob; the dominant axis picks U / R / D / L */
+const stick = ctl.stick, knob = $("knob");
+let stickId = null, curDir = null;
+const DEAD = 0.28;                 // fraction of the radius that counts as "centred"
+
+function setDir(d) {
+  if (d === curDir) return;
+  let out = "";
+  if (curDir) out += curDir.toLowerCase();   // release the old direction first
+  if (d) out += d;
+  curDir = d;
+  if (out) send(out);
+  if (d && navigator.vibrate) navigator.vibrate(6);
+}
+function resetStick() {
+  stickId = null;
+  stick.classList.remove("active");
+  knob.style.transform = "translate(0px, 0px)";
+  setDir(null);
+}
+function moveStick(e) {
+  const r = stick.getBoundingClientRect();
+  const R = stick.offsetWidth / 2;
+  const [dx, dy] = toLocal(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2));
+  const dist = Math.hypot(dx, dy);
+  const maxK = R * 0.62;                      // how far the knob may travel visually
+  const k = dist > maxK ? maxK / dist : 1;
+  knob.style.transform = `translate(${dx * k}px, ${dy * k}px)`;
+
+  if (dist < R * DEAD) { setDir(null); return; }
+  const ax = Math.abs(dx), ay = Math.abs(dy);
+  let want = ax > ay ? (dx > 0 ? "R" : "L") : (dy > 0 ? "D" : "U");
+  // hysteresis: near the diagonal keep the current direction so it does not flicker
+  if (curDir && want !== curDir) {
+    const curHoriz = curDir === "L" || curDir === "R";
+    const wantHoriz = want === "L" || want === "R";
+    if (curHoriz !== wantHoriz) {
+      const big = Math.max(ax, ay), small = Math.min(ax, ay);
+      if (big < small * 1.25) want = curDir;
+    }
+  }
+  setDir(want);
+}
+stick.addEventListener("pointerdown", e => {
+  if (editing) { startDrag("stick", e); return; }
+  if (stickId !== null) return;
+  e.preventDefault();
+  stickId = e.pointerId;
+  stick.setPointerCapture(e.pointerId);
+  stick.classList.add("active");
+  moveStick(e);
+});
+stick.addEventListener("pointermove", e => { if (e.pointerId === stickId) moveStick(e); });
+const stickEnd = e => { if (e.pointerId === stickId) resetStick(); };
+stick.addEventListener("pointerup", stickEnd);
+stick.addEventListener("pointercancel", stickEnd);
+stick.addEventListener("lostpointercapture", stickEnd);
+
+/* ------------------------------------------------------------- edit mode */
+const EDIT_HINT = "Drag a control to move it. Tap one, then use − / + to resize.";
+let editing = false, selected = null, drag = null;
+
+function select(id) {
+  selected = id;
+  for (const k of IDS) ctl[k].classList.toggle("sel", k === id);
+  updateSizeLbl();
+}
+function updateSizeLbl() {
+  if (!selected) { sizeLbl.textContent = "Tap a control"; return; }
+  const name = selected === "stick" ? "Joystick" : selected.toUpperCase();
+  sizeLbl.textContent = name + " " + Math.round(cfg.layouts[orient()][selected].s * 100) + "%";
+}
+function setEditing(on) {
+  releaseAll();
+  editing = on;
+  app.classList.toggle("editing", on);
+  editBtn.textContent = on ? "✔ Done" : "✎ Edit";
+  hintEl.textContent = on ? EDIT_HINT : "";
+  if (on) select(selected || "stick"); else { select(null); save(); }
+}
+editBtn.addEventListener("click", () => setEditing(!editing));
+
+function startDrag(id, e) {
+  e.preventDefault();
+  select(id);
+  ctl[id].setPointerCapture(e.pointerId);
+  const c = cfg.layouts[orient()][id];
+  drag = { id, pid: e.pointerId, sx: e.clientX, sy: e.clientY, x0: c.x * stage.clientWidth, y0: c.y * stage.clientHeight };
+}
+function moveDrag(e) {
+  if (!drag || e.pointerId !== drag.pid) return;
+  const [dx, dy] = toLocal(e.clientX - drag.sx, e.clientY - drag.sy);
+  const c = cfg.layouts[orient()][drag.id];
+  c.x = clamp((drag.x0 + dx) / stage.clientWidth, 0, 1);
+  c.y = clamp((drag.y0 + dy) / stage.clientHeight, 0, 1);
+  placeAll();
+}
+function endDrag(e) { if (drag && e.pointerId === drag.pid) { drag = null; save(); } }
+for (const id of IDS) {
+  ctl[id].addEventListener("pointermove", moveDrag);
+  ctl[id].addEventListener("pointerup", endDrag);
+  ctl[id].addEventListener("pointercancel", endDrag);
+}
+
+function bump(delta) {
+  if (!selected) return;
+  const c = cfg.layouts[orient()][selected];
+  c.s = clamp(Math.round((c.s + delta) * 100) / 100, 0.5, 2.5);
+  placeAll(); save();
+}
+// tap = one step, hold = keeps going
+function holdRepeat(btn, delta) {
+  let t1 = null, t2 = null;
+  const stop = () => { clearTimeout(t1); clearInterval(t2); t1 = t2 = null; };
+  btn.addEventListener("pointerdown", e => {
+    e.preventDefault(); bump(delta); stop();
+    t1 = setTimeout(() => { t2 = setInterval(() => bump(delta), 90); }, 350);
+  });
+  ["pointerup", "pointercancel", "pointerleave"].forEach(ev => btn.addEventListener(ev, stop));
+}
+holdRepeat($("sizeUp"), 0.05);
+holdRepeat($("sizeDown"), -0.05);
+
+$("resetBtn").addEventListener("click", () => {
+  cfg.layouts[orient()] = clone(DEFAULTS[orient()]);
+  placeAll(); save();
+});
+
+rotateBtn.addEventListener("click", () => {
+  releaseAll();
+  cfg.rot = (cfg.rot + 90) % 360;
+  save();
+  layout();
+});
+
+/* ------------------------------------------------------------------ misc */
+window.addEventListener("resize", layout);
+window.addEventListener("orientationchange", () => setTimeout(layout, 120));
+// never leave a key stuck if the page loses focus
+window.addEventListener("blur", () => releaseAll());
+document.addEventListener("visibilitychange", () => { if (document.hidden) releaseAll(); });
+document.addEventListener("contextmenu", e => e.preventDefault());
+
+load();
+layout();
+if (!navigator.bluetooth) {
+  hintEl.textContent = "Web Bluetooth is not available here. On Android use Chrome; on iPhone use the Bluefy browser.";
+}
+</script>
+</body>
+</html>

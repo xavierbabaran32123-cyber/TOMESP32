@@ -1,0 +1,6 @@
+{
+  "name": "Mask Controller",
+  "description": "Wireless Bluetooth Low Energy arcade controller for Mask Maze with customizable joystick and action button layouts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,59 @@
+<resources>
+    <string name="app_name">Mask Controller</string>
+
+    <!-- Header & Connection Status -->
+    <string name="status_not_connected">Not connected</string>
+    <string name="status_disconnected">Disconnected</string>
+    <string name="status_searching">Searching…</string>
+    <string name="status_connecting">Connecting…</string>
+    <string name="status_connected_format">Connected: %1$s</string>
+    <string name="default_device_name">MaskMaze</string>
+
+    <string name="action_rotate">Rotate</string>
+    <string name="cd_rotate_controller">Rotate the controller 90 degrees</string>
+    <string name="action_edit">Edit</string>
+    <string name="action_done">Done</string>
+    <string name="cd_edit_controls">Move and resize the controls</string>
+    <string name="action_connect">Connect</string>
+    <string name="action_disconnect">Disconnect</string>
+
+    <!-- Arcade Controls -->
+    <string name="button_a_label">A</string>
+    <string name="button_a_sub">start / OK</string>
+    <string name="cd_button_a">Button A, start or OK</string>
+    <string name="button_b_label">B</string>
+    <string name="button_b_sub">pause / back</string>
+    <string name="cd_button_b">Button B, pause or back</string>
+    <string name="cd_joystick">Directional joystick</string>
+
+    <!-- Edit Mode Bar -->
+    <string name="edit_tap_control">Tap a control</string>
+    <string name="edit_size_format">%1$s %2$d%%</string>
+    <string name="control_name_joystick">Joystick</string>
+    <string name="control_name_a">A</string>
+    <string name="control_name_b">B</string>
+    <string name="cd_size_smaller">Smaller</string>
+    <string name="cd_size_bigger">Bigger</string>
+    <string name="action_reset_layout">Reset layout</string>
+    <string name="cd_toggle_haptics">Toggle vibration feedback</string>
+    <string name="hint_edit_mode">Drag a control to move it. Tap one, then use − / + to resize.</string>
+
+    <!-- BLE Scanner Sheet -->
+    <string name="scanner_title">Connect to Mask Maze</string>
+    <string name="scanner_subtitle">Select your Nordic UART (NUS) receiver</string>
+    <string name="filter_nus_only">Mask Maze (NUS)</string>
+    <string name="filter_all_ble">All BLE devices</string>
+    <string name="action_rescan">Scan</string>
+    <string name="action_stop_scan">Stop</string>
+    <string name="scanner_empty_scanning">Scanning nearby Bluetooth Low Energy devices…</string>
+    <string name="scanner_empty_idle">No Mask Maze receivers found yet. Power on your board or switch to \"All BLE devices\".</string>
+    <string name="scanner_bt_unavailable">Bluetooth Low Energy is not supported on this device.</string>
+    <string name="scanner_bt_disabled">Bluetooth is turned off. Enable Bluetooth to connect to Mask Maze.</string>
+    <string name="action_enable_bluetooth">Turn On Bluetooth</string>
+    <string name="scanner_permission_needed">Bluetooth scan and connect permissions are required to discover your Mask Maze receiver.</string>
+    <string name="action_grant_permissions">Grant Permissions</string>
+    <string name="badge_nus">NUS</string>
+    <string name="rssi_format">%1$d dBm</string>
+    <string name="error_connect_format">Could not connect: %1$s</string>
+    <string name="error_missing_nus">Selected device does not expose Nordic UART Service</string>
+</resources>
