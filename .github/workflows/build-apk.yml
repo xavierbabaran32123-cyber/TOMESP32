@@ -12,6 +12,8 @@ permissions:
 jobs:
   build-apk:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -90,8 +92,19 @@ jobs:
           name: Mask-Controller-APK
           path: Mask-Controller.apk
 
-      - name: Attach APK to GitHub Release
-        if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: Mask-Controller.apk
+      - name: Publish APK to GitHub Release Assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RELEASE_TAG="${{ github.event.release.tag_name }}"
+          if [ -z "$RELEASE_TAG" ]; then
+            RELEASE_TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || true)
+          fi
+
+          if [ -n "$RELEASE_TAG" ]; then
+            gh release upload "$RELEASE_TAG" Mask-Controller.apk --clobber
+          else
+            gh release create v1.0.0 Mask-Controller.apk \
+              --title "Mask Controller v1.0.0" \
+              --notes "Installable Android APK for Mask Controller."
+          fi
